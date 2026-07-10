@@ -1,182 +1,36 @@
-#pragma once
 // =============================================================================
-// CONFIG.H — SATURN 32 — ESP32-S3 WROOM-1 N16R8
+// STORAGE.INO v1
 // =============================================================================
+// UNDO: clic court UNDO
+// REDO: long press UNDO 1.5s (géré dans matrix.ino)
+// activeTrack jamais modifié par undo/redo
 
-// OLED SSD1306
-#define SCREEN_WIDTH  128
-#define SCREEN_HEIGHT  64
-#define OLED_RESET     -1
-#define I2C_SDA        39   // SDA cable sur GPIO39 (inverse a la soudure)
-#define I2C_SCL        38   // SCL cable sur GPIO38 (inverse a la soudure)
-
-// MATRICE TOUCHES 5x5
-extern const int COL_PINS[5];   // GPIO  1  2  3  4  5
-extern const int ROW_PINS[5];   // GPIO  6  7  8  9 10
-
-// ENCODEURS
-#define ENC1_CLK  11
-#define ENC1_DT   12
-#define ENC1_SW   13
-#define ENC2_CLK  14
-#define ENC2_DT   21
-#define ENC2_SW   47
-
-// AUDIO I2S -> PCM5102
-#define I2S_DIN_PIN   40
-#define I2S_BCK_PIN   41
-#define I2S_LRCK_PIN  42
-#define SAMPLE_RATE        22050  // 22050Hz : -50% CPU vs 44100Hz, fréq. max 11025Hz
-#define AUDIO_BUF_SAMPLES    256  // 256 samples = 11.6ms budget/batch (était 5.8ms)
-#define DELAY_BUF_LEN       4410  // 200ms à 22050Hz (était 8820 à 44100Hz)
-#define CHORUS_BUF_LEN       882  //  40ms à 22050Hz (était 1764 à 44100Hz)
-
-// SEQUENCEUR
-#define STEPS_PER_TRACK     32
-#define MAX_NOTES_PER_STEP   6
-#define TRACK_COUNT          4
-#define MAX_VOICES           8
-#define UNDO_STACK_SIZE      6
-
-#define TRACK_DRUM   0
-#define TRACK_BASS   1
-#define TRACK_SYNTH1 2
-#define TRACK_SYNTH2 3
-
-// TIMINGS
-#define KEY_DEBOUNCE_MS      80
-#define LONG_PRESS_MS      1500
-#define STEP_EDIT_LONG_MS   500
-#define ERASE_LONG_MS      2500
-#define BTN_DEBOUNCE_MS      25
-
-// ENCODEURS seuils
-#define ENC_THRESHOLD_X10   30
-#define ENC_STABLE_READS     1
-
-// DRUMS
-#define DRUM_COUNT 8
-
-// ONDES
-#define WAVE_SINE     0
-#define WAVE_SQUARE   1
-#define WAVE_SAW      2
-#define WAVE_NOISE    3
-#define WAVE_TRIANGLE 4
-#define WAVE_PULSE    5
-#define WAVE_FM       6
-#define WAVE_WTBL     7
-#define WAVE_HARM     8   // Harmonique additive (fond + harmoniques, morph = densité)
-#define WAVE_FOLD     9   // Wave folder (sinus replié, morph = gain de pliage)
-#define WAVE_WARM    10   // Saw band-limitée chaud (morph = brillance)
-#define WAVE_SUB     11   // Sub bass (sinus fond + sinus -1 octave, morph = balance)
-#define WAVE_CHEW    12   // Chebyshev (harmoniques musicales précises, morph = ordre)
-#define WAVE_COUNT   13
-
-// PARAMETRES MENU SYNTH
-#define PARAM_WAVE     0
-#define PARAM_DECAY    1
-#define PARAM_REVERB   2
-#define PARAM_DELAY    3
-#define PARAM_ATTACK   4
-#define PARAM_CHORUS   5
-#define PARAM_DRIVE    6
-#define PARAM_FILTER   7
-#define PARAM_GLIDE    8
-#define PARAM_LFO_DEP  9
-#define PARAM_LFO_RAT 10
-#define PARAM_LFO_DST 11
-#define PARAM_SUB     12
-#define PARAM_NOISE   13
-#define PARAM_FILRES  14
-#define PARAM_SUSTAIN 15
-#define PARAM_RELEASE 16
-#define PARAM_COUNT   17
+#include <Arduino.h>
+#include <esp_task_wdt.h>
+#include "config.h"
+#include "globals.h"
 
 // =============================================================================
-// STRUCTURES
+// STRUCT SAUVEGARDE PROJET
+// Définie EN PREMIER pour que sizeof(SavedTrack) soit disponible
+// dans checkPresetVersion() ci-dessous.
+// RÈGLE : n'ajouter des champs qu'EN FIN de struct — ne jamais réordonner.
 // =============================================================================
-
-// Tie state par note
-#define TIE_NONE  0  // note courte
-#define TIE_START 1  // début d'une note longue (déclenche sustain)
-#define TIE_MID   2  // milieu (silencieux, la voix continue)
-#define TIE_END   3  // fin (déclenche noteOff)
-
-// ─── Boutons encodeur — machine à états ─────────────────────────────────────
-#define EVT_NONE  0
-#define EVT_SHORT 1
-#define EVT_LONG  2
-
-struct BtnState {
-  bool          last;
-  bool          longFired;
-  unsigned long downMs;
-};
-
-struct NoteSlot {
-  uint8_t note;
-  uint8_t octave;
-  uint8_t tie;   // TIE_NONE, TIE_START, TIE_MID, TIE_END
-};
-
-struct Step {
-  bool      active;
-  uint8_t   noteCount;
-  NoteSlot  slots[MAX_NOTES_PER_STEP];
-  uint8_t   stepDecay;
-  uint8_t   drumOffset; // 0=normal, 1=2ème demi-step, 2=1er demi-step seul, 3=deux fois
-};
-
-// Helpers step-level pour compatibilité affichage/séquenceur
-inline bool stepHasTieStart(const Step& s) {
-  for (int i=0;i<s.noteCount;i++) if (s.slots[i].tie==TIE_START) return true; return false;
-}
-inline bool stepHasTieMid(const Step& s) {
-  for (int i=0;i<s.noteCount;i++) if (s.slots[i].tie==TIE_MID) return true; return false;
-}
-inline bool stepHasTieEnd(const Step& s) {
-  for (int i=0;i<s.noteCount;i++) if (s.slots[i].tie==TIE_END) return true; return false;
-}
-inline bool stepIsAllMid(const Step& s) {
-  if (!s.active || s.noteCount==0) return false;
-  for (int i=0;i<s.noteCount;i++) if (s.slots[i].tie!=TIE_MID) return false; return true;
-}
-inline bool stepHasShort(const Step& s) {
-  for (int i=0;i<s.noteCount;i++) if (s.slots[i].tie==TIE_NONE) return true; return false;
-}
-
-struct ArpData {
-  bool    enabled;
-  uint8_t noteCount;
-  uint8_t notes[6];
-  uint8_t octaves[6];
-  uint8_t div;
-  uint8_t pos;
-  uint8_t stepCount;
-  bool    latch;
-  uint8_t octaveRange;  // 1=1 octave, 2=2 octaves, 3=3 octaves
-  uint8_t octaveShift;  // octave courante dans le cycle (0..octaveRange-1)
-  uint8_t noteLocked;   // bitmask : bit i=1 -> note permanente (REC), bit i=0 -> temporaire
-};
-
-struct Track {
+struct SavedTrack {
   Step    steps[STEPS_PER_TRACK];
-  Step    arpSteps[STEPS_PER_TRACK];
-  ArpData arp;
+  // Paramètres track
   uint8_t octave;
-  bool    muted;
   uint8_t drumKit;
-  float   volume;
-  uint8_t activePreset;
   uint8_t trackLen;
   uint8_t waveform;
+  uint8_t chordMode;
+  uint8_t lfoDest;
+  uint8_t wtblIdx;
+  float   volume;
   float   decayTime;
   float   waveMorph;
-  float   pwmWidth;
   float   fmRatio;
   float   fmDepth;
-  uint8_t wtblIdx;
   float   reverbAmt;
   float   delayAmt;
   float   attackAmt;
@@ -187,114 +41,369 @@ struct Track {
   float   glideAmt;
   float   lfoDepth;
   float   lfoRate;
-  uint8_t lfoDest;
-  float   subOscAmt;
-  float   noiseAmt;
   float   sustainLevel;
   float   releaseTime;
-  uint8_t chordMode;     // 0=off 1=maj 2=min 3=dom7 4=min7
-  // OSC2 — second oscillateur superposé (255 = désactivé)
-  uint8_t waveform2;   // 0..WAVE_COUNT-1, 255 = NONE
-  float   osc2Mix;     // 0.0=OSC1 seul  0.5=50/50  1.0=OSC2 seul
-  float   waveMorph2;  // morph indépendant pour OSC2
-};
-
-struct Preset {
-  uint8_t waveform;
-  float   decayTime;
-  float   waveMorph;
+  float   subOscAmt;
+  float   noiseAmt;
+  // ARP
+  bool    arpEnabled;
+  uint8_t arpDiv;
+  uint8_t arpOctaveRange;
+  bool    arpLatch;
+  uint8_t arpNoteCount;
+  uint8_t arpNotes[6];
+  uint8_t arpOctaves[6];
+  // v9 : champs ajoutés en fin de struct
   float   pwmWidth;
-  float   fmRatio;
-  float   fmDepth;
-  uint8_t wtblIdx;
-  float   reverbAmt;
-  float   delayAmt;
-  float   attackAmt;  // attack time 0..1
-  float   chorusAmt;
-  float   driveAmt;
-  float   lfoDepth;
-  float   lfoRate;
-  uint8_t lfoDest;
-  float   filterCutoff;
-  float   filterRes;
-  float   glideAmt;
-  float   subOscAmt;
-  float   noiseAmt;
-  float   sustainLevel;
-  float   releaseTime;
-  uint8_t chordMode;
-  uint8_t drumKit;
-  uint8_t trackLen;
-  // OSC2
+  bool    muted;
+  uint8_t activePreset;
+  // v10 : OSC2
   uint8_t waveform2;
   float   osc2Mix;
   float   waveMorph2;
 };
 
-struct Voice {
-  bool          active;
-  float         freq;          // fréquence courante (glide)
-  float         targetFreq;    // fréquence cible
-  float         phase;
-  float         phaseFM;
-  float         subPhase;      // phase sous-oscillateur
-  float         osc2Phase;     // phase OSC2
-  float         amplitude;
-  float         envelope;
-  float         decayRate;
-  float         attackRate;
-  float         releaseRate;   // taux de release
-  float         glideCoef;     // précalculé : exp(-1/(glideTime*SR))
-  bool          attacking;
-  bool          releasing;     // phase de release
-  bool          sustained;
-  uint8_t       trackIdx;
-  uint8_t       waveform;
-  uint8_t       noteIdx;
-  uint8_t       octave;
-  unsigned long startTime;
-  uint32_t      sustainSamples; // compteur samples pour watchdog (évite millis() dans boucle audio)
-  float         filterState;
-  float         filterState2;  // 2ème pôle filtre résonant
-  float         lfoPhase;      // phase LFO par voix
-};
+// =============================================================================
+// VERSION CHECKS — presets ET projets
+// =============================================================================
+#define PRESET_STRUCT_VERSION  ((uint16_t)sizeof(Preset))
+#define PROJECT_STRUCT_VERSION ((uint16_t)sizeof(SavedTrack))
 
-struct DrumVoice {
-  bool    active;
-  uint8_t drumType;
-  float   phase;
-  float   phase2;
-  float   envelope;
-  float   decayRate;
-  float   freq;
-  float   freq2;
-  float   amplitude;
-  float   filterState;
-};
+// Appelé depuis setup() dans Saturn_32.ino.
+// Si la taille de Preset ou SavedTrack a changé depuis le dernier flash,
+// les entrées NVS ont une taille différente et prefs.getBytes() retourne
+// l'ancienne taille ≠ sizeof(struct), ce qui fait sauter le "if (read!=sizeof)"
+// et rien ne se charge. La solution : effacer les entrées obsolètes au démarrage.
+void checkPresetVersion() {
+  // --- Presets synth ---
+  uint16_t storedPr = prefs.getUShort("prVer", 0);
+  if (storedPr != PRESET_STRUCT_VERSION) {
+    for (uint8_t t = 0; t < TRACK_COUNT; t++)
+      for (uint8_t p = 0; p < 4; p++) {
+        char key[12]; snprintf(key, sizeof(key), "t%dp%d", (int)t, (int)p);
+        prefs.remove(key);
+      }
+    prefs.putUShort("prVer", PRESET_STRUCT_VERSION);
+    Serial.printf("Presets reinitialises (struct=%d bytes)\n", PRESET_STRUCT_VERSION);
+  }
 
-struct NoteEvent {
-  uint8_t trackIdx;
-  uint8_t noteIdx;
-  uint8_t octave;
-  bool    isMetro;
-  bool    metroAccent;
-  bool    noteOff;
-  bool    sustained;
-  bool    fromSeq;    // true = tieStart séquenceur, false = live
-};
+  // --- Projets ---
+  // Même mécanisme : si sizeof(SavedTrack) a changé, effacer tous les slots.
+  // Les projets devront être re-sauvegardés après un flash avec struct modifiée.
+  uint16_t storedPj = prefs.getUShort("prjVer", 0);
+  if (storedPj != PROJECT_STRUCT_VERSION) {
+    for (uint8_t s = 0; s < 4; s++) {
+      char key[12];
+      snprintf(key, sizeof(key), "s%dbpm", s); prefs.remove(key);
+      for (uint8_t t = 0; t < TRACK_COUNT; t++) {
+        snprintf(key, sizeof(key), "s%dt%d", s, t); prefs.remove(key);
+      }
+    }
+    prefs.putUShort("prjVer", PROJECT_STRUCT_VERSION);
+    Serial.printf("Projets reinitialises (struct=%d bytes)\n", PROJECT_STRUCT_VERSION);
+  }
+}
 
-struct UndoState {
-  Track   tracks[TRACK_COUNT];
-  uint8_t activeTrack;
-};
+// =============================================================================
+// DRUM PRESETS
+// =============================================================================
+void initDrumPresets() {
+  uint8_t ver = prefs.getUChar("drumVer", 0);
+  if (ver < 3) {
+    for (uint8_t p = 0; p < 4; p++) {
+      char key[12]; snprintf(key, sizeof(key), "t%dp%d", (int)TRACK_DRUM, (int)p);
+      prefs.remove(key);
+    }
+    prefs.putUChar("drumVer", 3);
+  }
 
-extern const char* TRACK_NAMES[4];
-extern const char* PRESET_PREFIXES[4];
-extern const char* NOTE_NAMES[13];
-extern const char* WAVE_NAMES[WAVE_COUNT];
-extern const char* DRUM_NAMES[13];
-extern const char* DRUM_KIT_NAMES[4];
-extern const char* PARAM_NAMES[PARAM_COUNT];
-extern const char* WTBL_NAMES[4];
-extern const float NOTE_FREQS_BASE[13];
-extern const int   KEY_NOTE_MAP[3][5];
+  for (uint8_t p = 0; p < 4; p++) {
+    char key[12]; snprintf(key, sizeof(key), "t%dp%d", (int)TRACK_DRUM, (int)p);
+    Preset pr;
+    if (prefs.getBytes(key, &pr, sizeof(pr)) != sizeof(pr)) {
+      pr.waveform    = 0;
+      pr.decayTime   = 0.10f;
+      pr.waveMorph   = 0.0f;
+      pr.pwmWidth    = 0.5f;
+      pr.fmRatio     = 0.5f;
+      pr.fmDepth     = 0.5f;
+      pr.wtblIdx     = 0;
+      pr.reverbAmt   = 0.0f;
+      pr.delayAmt    = 0.0f;
+      pr.attackAmt   = 0.0f;
+      pr.chorusAmt   = 0.0f;
+      pr.driveAmt    = 0.0f;
+      pr.lfoDepth    = 0.0f;
+      pr.lfoRate     = 0.3f;
+      pr.filterCutoff= 1.0f;
+      pr.glideAmt    = 0.0f;
+      pr.filterRes   = 0.0f;
+      pr.lfoDest     = 0;
+      pr.subOscAmt   = 0.0f;
+      pr.noiseAmt    = 0.0f;
+      pr.sustainLevel= 1.0f;
+      pr.releaseTime = 0.1f;
+      pr.chordMode   = 0;
+      pr.drumKit     = p;
+      pr.waveform2   = 255;
+      pr.osc2Mix     = 0.5f;
+      pr.waveMorph2  = 0.5f;
+      prefs.putBytes(key, &pr, sizeof(pr));
+    }
+  }
+}
+
+// =============================================================================
+// UNDO / REDO
+// =============================================================================
+void pushUndo() {
+  undoHead = (undoHead + 1) % UNDO_STACK_SIZE;
+  memcpy(undoStack[undoHead].tracks, tracks, sizeof(tracks));
+  undoStack[undoHead].activeTrack = activeTrack;
+  if (undoCount < UNDO_STACK_SIZE) undoCount++;
+  redoHead  = -1;
+  redoCount =  0;
+}
+
+void doUndo() {
+  if (undoCount <= 0 || undoHead < 0) return;
+  redoHead = (redoHead + 1) % UNDO_STACK_SIZE;
+  memcpy(redoStack[redoHead].tracks, tracks, sizeof(tracks));
+  redoStack[redoHead].activeTrack = activeTrack;
+  if (redoCount < UNDO_STACK_SIZE) redoCount++;
+  uint8_t save = activeTrack;
+  memcpy(tracks, undoStack[undoHead].tracks, sizeof(tracks));
+  activeTrack = save;
+  undoHead = (undoHead - 1 + UNDO_STACK_SIZE) % UNDO_STACK_SIZE;
+  if (undoCount > 0) undoCount--;
+  updateEffects();
+  Serial.println("UNDO");
+}
+
+void doRedo() {
+  if (redoCount <= 0 || redoHead < 0) return;
+  undoHead = (undoHead + 1) % UNDO_STACK_SIZE;
+  memcpy(undoStack[undoHead].tracks, tracks, sizeof(tracks));
+  undoStack[undoHead].activeTrack = activeTrack;
+  if (undoCount < UNDO_STACK_SIZE) undoCount++;
+  uint8_t save = activeTrack;
+  memcpy(tracks, redoStack[redoHead].tracks, sizeof(tracks));
+  activeTrack = save;
+  redoHead = (redoHead - 1 + UNDO_STACK_SIZE) % UNDO_STACK_SIZE;
+  if (redoCount > 0) redoCount--;
+  updateEffects();
+  Serial.println("REDO");
+}
+
+// =============================================================================
+// SAVE / LOAD PRESET
+// =============================================================================
+void savePreset(uint8_t t, uint8_t p) {
+  char key[12]; snprintf(key, sizeof(key), "t%dp%d", t, p);
+  Preset pr;
+  pr.waveform    = tracks[t].waveform;
+  pr.decayTime   = tracks[t].decayTime;
+  pr.waveMorph   = tracks[t].waveMorph;
+  pr.pwmWidth    = tracks[t].pwmWidth;
+  pr.fmRatio     = tracks[t].fmRatio;
+  pr.fmDepth     = tracks[t].fmDepth;
+  pr.wtblIdx     = tracks[t].wtblIdx;
+  pr.reverbAmt   = tracks[t].reverbAmt;
+  pr.delayAmt    = tracks[t].delayAmt;
+  pr.attackAmt   = tracks[t].attackAmt;
+  pr.chorusAmt   = tracks[t].chorusAmt;
+  pr.driveAmt    = tracks[t].driveAmt;
+  pr.lfoDepth    = tracks[t].lfoDepth;
+  pr.lfoRate     = tracks[t].lfoRate;
+  pr.filterCutoff= tracks[t].filterCutoff;
+  pr.glideAmt    = tracks[t].glideAmt;
+  pr.filterRes   = tracks[t].filterRes;
+  pr.lfoDest     = tracks[t].lfoDest;
+  pr.subOscAmt   = tracks[t].subOscAmt;
+  pr.noiseAmt    = tracks[t].noiseAmt;
+  pr.sustainLevel= tracks[t].sustainLevel;
+  pr.releaseTime = tracks[t].releaseTime;
+  pr.chordMode   = tracks[t].chordMode;
+  pr.drumKit     = (t == TRACK_DRUM) ? tracks[t].drumKit : 0;
+  pr.trackLen    = tracks[t].trackLen;
+  pr.waveform2   = tracks[t].waveform2;
+  pr.osc2Mix     = tracks[t].osc2Mix;
+  pr.waveMorph2  = tracks[t].waveMorph2;
+  esp_task_wdt_reset();
+  prefs.putBytes(key, &pr, sizeof(pr));
+}
+
+void loadPreset(uint8_t t, uint8_t p) {
+  char key[12]; snprintf(key, sizeof(key), "t%dp%d", t, p);
+  Preset pr;
+  if (prefs.getBytes(key, &pr, sizeof(pr)) == sizeof(pr)) {
+    tracks[t].waveform     = pr.waveform;
+    tracks[t].decayTime    = pr.decayTime;
+    tracks[t].waveMorph    = pr.waveMorph;
+    tracks[t].pwmWidth     = pr.pwmWidth;
+    tracks[t].fmRatio      = pr.fmRatio;
+    tracks[t].fmDepth      = pr.fmDepth;
+    tracks[t].wtblIdx      = pr.wtblIdx;
+    tracks[t].reverbAmt    = pr.reverbAmt;
+    tracks[t].delayAmt     = pr.delayAmt;
+    tracks[t].attackAmt    = pr.attackAmt;
+    tracks[t].chorusAmt    = pr.chorusAmt;
+    tracks[t].driveAmt     = pr.driveAmt;
+    tracks[t].lfoDepth     = pr.lfoDepth;
+    tracks[t].lfoRate      = pr.lfoRate;
+    tracks[t].filterCutoff = pr.filterCutoff;
+    tracks[t].glideAmt     = pr.glideAmt;
+    tracks[t].filterRes    = pr.filterRes;
+    tracks[t].lfoDest      = pr.lfoDest;
+    tracks[t].subOscAmt    = pr.subOscAmt;
+    tracks[t].noiseAmt     = pr.noiseAmt;
+    tracks[t].sustainLevel = pr.sustainLevel;
+    tracks[t].releaseTime  = pr.releaseTime;
+    tracks[t].chordMode    = pr.chordMode;
+    if (t == TRACK_DRUM) tracks[t].drumKit = pr.drumKit % 4;
+    tracks[t].trackLen  = (pr.trackLen == 32) ? 32 : 16;
+    tracks[t].waveform2 = pr.waveform2;
+    tracks[t].osc2Mix   = constrain(pr.osc2Mix, 0.0f, 1.0f);
+    tracks[t].waveMorph2 = constrain(pr.waveMorph2, 0.0f, 1.0f);
+    updateEffects();
+  }
+}
+
+// =============================================================================
+// SAVE / LOAD PROJECT
+// Clés NVS : "s{slot}bpm" = BPM, "s{slot}t{t}" = données piste
+// =============================================================================
+void saveProject(uint8_t slot) {
+  if (slot >= 4) return;
+  char key[12];
+
+  // esp_task_wdt_reset() avant chaque prefs.putBytes() :
+  // chaque write NVS peut bloquer ~200 ms (erase page flash).
+  // Sans ce reset, la loop() bloque assez longtemps pour déclencher le WDT.
+  esp_task_wdt_reset();
+  snprintf(key, sizeof(key), "s%dbpm", slot);
+  prefs.putInt(key, bpm);
+
+  for (uint8_t t = 0; t < TRACK_COUNT; t++) {
+    SavedTrack st;
+    memset(&st, 0, sizeof(st));  // zéro-init les octets de padding
+    memcpy(st.steps, tracks[t].steps, sizeof(tracks[t].steps));
+    st.octave         = tracks[t].octave;
+    st.drumKit        = tracks[t].drumKit;
+    st.trackLen       = tracks[t].trackLen;
+    st.waveform       = tracks[t].waveform;
+    st.chordMode      = tracks[t].chordMode;
+    st.lfoDest        = tracks[t].lfoDest;
+    st.wtblIdx        = tracks[t].wtblIdx;
+    st.volume         = tracks[t].volume;
+    st.decayTime      = tracks[t].decayTime;
+    st.waveMorph      = tracks[t].waveMorph;
+    st.fmRatio        = tracks[t].fmRatio;
+    st.fmDepth        = tracks[t].fmDepth;
+    st.reverbAmt      = tracks[t].reverbAmt;
+    st.delayAmt       = tracks[t].delayAmt;
+    st.attackAmt      = tracks[t].attackAmt;
+    st.chorusAmt      = tracks[t].chorusAmt;
+    st.driveAmt       = tracks[t].driveAmt;
+    st.filterCutoff   = tracks[t].filterCutoff;
+    st.filterRes      = tracks[t].filterRes;
+    st.glideAmt       = tracks[t].glideAmt;
+    st.lfoDepth       = tracks[t].lfoDepth;
+    st.lfoRate        = tracks[t].lfoRate;
+    st.sustainLevel   = tracks[t].sustainLevel;
+    st.releaseTime    = tracks[t].releaseTime;
+    st.subOscAmt      = tracks[t].subOscAmt;
+    st.noiseAmt       = tracks[t].noiseAmt;
+    st.arpEnabled     = tracks[t].arp.enabled;
+    st.arpDiv         = tracks[t].arp.div;
+    st.arpOctaveRange = tracks[t].arp.octaveRange;
+    st.arpLatch       = tracks[t].arp.latch;
+    st.arpNoteCount   = tracks[t].arp.noteCount;
+    memcpy(st.arpNotes,   tracks[t].arp.notes,   6);
+    memcpy(st.arpOctaves, tracks[t].arp.octaves, 6);
+    st.pwmWidth       = tracks[t].pwmWidth;
+    st.muted          = tracks[t].muted;
+    st.activePreset   = tracks[t].activePreset;
+    st.waveform2      = tracks[t].waveform2;
+    st.osc2Mix        = tracks[t].osc2Mix;
+    st.waveMorph2     = tracks[t].waveMorph2;
+
+    snprintf(key, sizeof(key), "s%dt%d", slot, t);
+    esp_task_wdt_reset();
+    bool ok = prefs.putBytes(key, &st, sizeof(st));
+    Serial.printf("saveProject slot=%d track=%d: %s (%d bytes)\n",
+                  slot, t, ok ? "OK" : "FAIL", (int)sizeof(st));
+  }
+  Serial.printf("Projet %d sauvegarde termine\n", slot);
+}
+
+void loadProject(uint8_t slot) {
+  if (slot >= 4) return;
+  char key[12];
+
+  snprintf(key, sizeof(key), "s%dbpm", slot);
+  int savedBpm = prefs.getInt(key, 0);
+  if (savedBpm > 0) { bpm = savedBpm; calcBpmInterval(); }
+
+  for (uint8_t t = 0; t < TRACK_COUNT; t++) {
+    snprintf(key, sizeof(key), "s%dt%d", slot, t);
+    SavedTrack st;
+    size_t read = prefs.getBytes(key, &st, sizeof(st));
+    Serial.printf("loadProject slot=%d track=%d: read=%d expected=%d\n",
+                  slot, t, (int)read, (int)sizeof(st));
+    if (read != sizeof(st)) continue;
+
+    memcpy(tracks[t].steps, st.steps, sizeof(tracks[t].steps));
+    tracks[t].octave       = st.octave;
+    tracks[t].drumKit      = st.drumKit;
+    tracks[t].trackLen     = st.trackLen;
+    tracks[t].waveform     = st.waveform;
+    tracks[t].chordMode    = st.chordMode;
+    tracks[t].lfoDest      = st.lfoDest;
+    tracks[t].wtblIdx      = st.wtblIdx;
+    tracks[t].volume       = st.volume;
+    tracks[t].decayTime    = st.decayTime;
+    tracks[t].waveMorph    = st.waveMorph;
+    tracks[t].fmRatio      = st.fmRatio;
+    tracks[t].fmDepth      = st.fmDepth;
+    tracks[t].reverbAmt    = st.reverbAmt;
+    tracks[t].delayAmt     = st.delayAmt;
+    tracks[t].attackAmt    = st.attackAmt;
+    tracks[t].chorusAmt    = st.chorusAmt;
+    tracks[t].driveAmt     = st.driveAmt;
+    tracks[t].filterCutoff = st.filterCutoff;
+    tracks[t].filterRes    = st.filterRes;
+    tracks[t].glideAmt     = st.glideAmt;
+    tracks[t].lfoDepth     = st.lfoDepth;
+    tracks[t].lfoRate      = st.lfoRate;
+    tracks[t].sustainLevel = st.sustainLevel;
+    tracks[t].releaseTime  = st.releaseTime;
+    tracks[t].subOscAmt    = st.subOscAmt;
+    tracks[t].noiseAmt     = st.noiseAmt;
+    tracks[t].arp.enabled     = st.arpEnabled;
+    tracks[t].arp.div         = st.arpDiv;
+    tracks[t].arp.octaveRange = st.arpOctaveRange;
+    tracks[t].arp.latch       = st.arpLatch;
+    tracks[t].arp.noteCount   = st.arpNoteCount;
+    tracks[t].arp.pos         = 0;
+    tracks[t].arp.octaveShift = 0;
+    memcpy(tracks[t].arp.notes,   st.arpNotes,   6);
+    memcpy(tracks[t].arp.octaves, st.arpOctaves, 6);
+    tracks[t].pwmWidth     = st.pwmWidth;
+    tracks[t].muted        = st.muted;
+    tracks[t].activePreset = st.activePreset % 4;
+    tracks[t].waveform2    = st.waveform2;
+    tracks[t].osc2Mix      = constrain(st.osc2Mix, 0.0f, 1.0f);
+    tracks[t].waveMorph2   = constrain(st.waveMorph2, 0.0f, 1.0f);
+  }
+  stopAllVoices();
+  updateEffects();
+  Serial.printf("Projet %d charge\n", slot);
+}
+
+bool projectExists(uint8_t slot) {
+  if (slot >= 4) return false;
+  char key[12];
+  snprintf(key, sizeof(key), "s%dbpm", slot);
+  return prefs.isKey(key);
+}
