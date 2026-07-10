@@ -1,5 +1,5 @@
 // =============================================================================
-// DRUMS.INO v12 — Samples copiés en PSRAM au boot pour lecture rapide
+// DRUMS.INO v1 — Samples copiés en PSRAM au boot pour lecture rapide
 // pgm_read_word depuis flash = lent (cache miss) → copie en PSRAM = ×100 plus rapide
 // =============================================================================
 
