@@ -1,6 +1,6 @@
 SATURN 32
 
-Check TUTO (Fr) : https://www.youtube.com/watch?v=lCuIZD2mn_Q&t=147s
+Check TUTO (Fr) : https://www.youtube.com/watch?v=qH96YheFPiA&t=1s
 
 Groovebox open source construite sur ESP32-S3.
 Pour en savoir plus visitez le site     ===>    https://saturn32.odoo.com
