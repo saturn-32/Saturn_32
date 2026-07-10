@@ -1,5 +1,5 @@
 // =============================================================================
-// SEQUENCER.INO v9 — NoteSlot : chaque note a son propre état tie
+// SEQUENCER.INO v1 — NoteSlot : chaque note a son propre état tie
 // =============================================================================
 #include <Arduino.h>
 #include "config.h"
