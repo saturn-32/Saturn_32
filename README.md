@@ -14,14 +14,23 @@ Arpégiateur par piste
 Hardware
 
 x1 - ESP32 WROOM-32 - 44 broches
+
 x1 - Écran OLED 0.96 Pouces SSD1306 I2C IIC - 4 pins
+
 x1 - DAC PCM5102
+
 x1 - Jack 3.5 mm PJ-306M
+
 x2 - Encodeur rotatif KY-040
+
 x1 - Module de charge TP4056
+
 x22 - Bouton clavier mécanique
+
 x1 - Haut Parleur 3W 4ohms
+
 x1 - Batterie 103450 3.7V 2000mAh
+
 x1 - Module de mesure de batterie 3.7V-4.2V 1S/2S
 
 Licence
